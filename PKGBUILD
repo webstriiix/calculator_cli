@@ -1,11 +1,11 @@
 # Maintainer: webstriix <webstriix@gmail.com>
 pkgname=calculator-cli-git
 _pkgname=calculator_cli
-pkgver=0.1.0.r0.g0000000
+pkgver=0.1.0.r1.g2927123
 pkgrel=1
 pkgdesc="Simple Ratatui-based TUI calculator"
 arch=('x86_64' 'aarch64')
-url="https://github.com/webstriix/${_pkgname}"
+url="https://github.com/webstriiix/${_pkgname}"
 license=('MIT')
 depends=('glibc')
 makedepends=('cargo' 'git')
@@ -16,7 +16,9 @@ sha256sums=('SKIP')
 
 pkgver() {
   cd "${srcdir}/${_pkgname}"
-  git describe --tags --long | sed 's/^v//;s/-/./g'
+  local count
+  count="$(git rev-list --count HEAD)"
+  printf "0.1.0.r%s.g%s" "${count}" "$(git rev-parse --short HEAD)"
 }
 
 build() {

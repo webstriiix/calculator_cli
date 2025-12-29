@@ -308,15 +308,10 @@ impl App {
         if !self.input.is_empty() {
             return self.input.clone();
         }
-        if let Some(value) = self
-            .tokens
-            .iter()
-            .rev()
-            .find_map(|token| match token {
-                Token::Number(number) => Some(number.clone()),
-                Token::Operator(_) => None,
-            })
-        {
+        if let Some(value) = self.tokens.iter().rev().find_map(|token| match token {
+            Token::Number(number) => Some(number.clone()),
+            Token::Operator(_) => None,
+        }) {
             return value;
         }
         "0".into()
@@ -461,10 +456,11 @@ mod tests {
         app.handle_digit('0');
         app.evaluate();
 
-        assert!(app
-            .error_message
-            .as_deref()
-            .is_some_and(|msg| msg.contains("Cannot divide")));
+        assert!(
+            app.error_message
+                .as_deref()
+                .is_some_and(|msg| msg.contains("Cannot divide"))
+        );
     }
 
     #[test]
