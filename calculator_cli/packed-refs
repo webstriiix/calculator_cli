@@ -1,8 +1,0 @@
-# pack-refs with: peeled fully-peeled sorted 
-fb0653bc0024eefbad807faa5408b14c98feee1d refs/heads/dependabot/github_actions/actions/checkout-6
-021950c4b261536295925f476bc4b276b00aae23 refs/heads/dependabot/github_actions/clechasseur/rs-clippy-check-5
-29271231b8325841defb6ade9233f744fa2f92ae refs/heads/main
-fb0653bc0024eefbad807faa5408b14c98feee1d refs/pull/1/head
-8c55ae8293ba2054032dd50eabf59294f8e48a1d refs/pull/1/merge
-021950c4b261536295925f476bc4b276b00aae23 refs/pull/2/head
-fe067e8208e5484e002779914688dede99810eed refs/pull/2/merge

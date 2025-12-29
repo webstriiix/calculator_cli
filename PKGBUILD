@@ -1,7 +1,7 @@
 # Maintainer: webstriix <webstriix@gmail.com>
 pkgname=calculator-cli-git
 _pkgname=calculator_cli
-pkgver=0.1.0.r1.g2927123
+pkgver=0.1.0.r2.g59c3cba
 pkgrel=1
 pkgdesc="Simple Ratatui-based TUI calculator"
 arch=('x86_64' 'aarch64')
