@@ -1,6 +1,6 @@
 [package]
 name = "calculator_cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "calculator in CLI"
 authors = ["webstriix <webstriix@gmail.com>"]
 license = "MIT"
