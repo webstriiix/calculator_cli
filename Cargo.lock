@@ -124,7 +124,7 @@ checksum = "1fbdf580320f38b612e485521afda1ee26d10cc9884efaaa750d383e13e3c5f4"
 
 [[package]]
 name = "calculator_cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "color-eyre",
  "crossterm",
