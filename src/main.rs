@@ -1,18 +1,22 @@
 use std::io;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
-    layout::{Constraint, Layout},
-    style::{Modifier, Style},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Paragraph, Widget},
 };
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
+    crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
     let app_result = App::default().run(&mut terminal);
+    let _ = crossterm::execute!(io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
     app_result
 }
@@ -31,6 +35,7 @@ pub struct App {
     just_evaluated: bool,
     error_message: Option<String>,
     exit: bool,
+    buttons: Vec<Button>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +50,24 @@ enum Operator {
     Subtract,
     Multiply,
     Divide,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ButtonAction {
+    Digit(char),
+    Decimal,
+    Operator(Operator),
+    Evaluate,
+    AllClear,
+    Backspace,
+    Quit,
+    NoOp,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Button {
+    action: ButtonAction,
+    area: Rect,
 }
 
 impl Operator {
@@ -67,13 +90,14 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key_events(key),
+            Event::Mouse(mouse) => self.handle_mouse_event(mouse),
             _ => {}
         }
 
@@ -81,30 +105,70 @@ impl App {
     }
 
     fn handle_key_events(&mut self, key: KeyEvent) {
+        let action = match key.code {
+            KeyCode::Char('q') => Some(ButtonAction::Quit),
+            KeyCode::Char('a') | KeyCode::Char('A') => Some(ButtonAction::AllClear),
+            KeyCode::Enter | KeyCode::Char('=') => Some(ButtonAction::Evaluate),
+            KeyCode::Char('+') => Some(ButtonAction::Operator(Operator::Add)),
+            KeyCode::Char('-') => Some(ButtonAction::Operator(Operator::Subtract)),
+            KeyCode::Char('*') | KeyCode::Char('x') | KeyCode::Char('X') => {
+                Some(ButtonAction::Operator(Operator::Multiply))
+            }
+            KeyCode::Char('/') | KeyCode::Char(':') => {
+                Some(ButtonAction::Operator(Operator::Divide))
+            }
+            KeyCode::Char('.') => Some(ButtonAction::Decimal),
+            KeyCode::Backspace => Some(ButtonAction::Backspace),
+            KeyCode::Char(ch) if ch.is_ascii_digit() => Some(ButtonAction::Digit(ch)),
+            _ => None,
+        };
+
+        if let Some(action) = action {
+            self.handle_action(action);
+        }
+    }
+
+    fn handle_mouse_event(&mut self, mouse: MouseEvent) {
+        if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+            if let Some(action) = self.hit_test(mouse.column, mouse.row) {
+                self.handle_action(action);
+            }
+        }
+    }
+
+    fn handle_action(&mut self, action: ButtonAction) {
         if self.error_message.is_some() {
-            match key.code {
-                KeyCode::Char('a') | KeyCode::Char('A') => self.all_clear(),
-                KeyCode::Char('q') => self.exit = true,
+            match action {
+                ButtonAction::AllClear => self.all_clear(),
+                ButtonAction::Quit => self.exit = true,
                 _ => {}
             }
             return;
         }
 
-        match key.code {
-            KeyCode::Char('q') => self.exit = true,
-            KeyCode::Char('a') | KeyCode::Char('A') => self.all_clear(),
-            KeyCode::Enter | KeyCode::Char('=') => self.evaluate(),
-            KeyCode::Char('+') => self.set_operator(Operator::Add),
-            KeyCode::Char('-') => self.set_operator(Operator::Subtract),
-            KeyCode::Char('*') | KeyCode::Char('x') | KeyCode::Char('X') => {
-                self.set_operator(Operator::Multiply)
-            }
-            KeyCode::Char('/') | KeyCode::Char(':') => self.set_operator(Operator::Divide),
-            KeyCode::Char('.') => self.handle_decimal_point(),
-            KeyCode::Backspace => self.handle_backspace(),
-            KeyCode::Char(ch) if ch.is_ascii_digit() => self.handle_digit(ch),
-            _ => {}
+        match action {
+            ButtonAction::Digit(ch) => self.handle_digit(ch),
+            ButtonAction::Decimal => self.handle_decimal_point(),
+            ButtonAction::Operator(op) => self.set_operator(op),
+            ButtonAction::Evaluate => self.evaluate(),
+            ButtonAction::AllClear => self.all_clear(),
+            ButtonAction::Backspace => self.handle_backspace(),
+            ButtonAction::Quit => self.exit = true,
+            ButtonAction::NoOp => {}
         }
+    }
+
+    fn hit_test(&self, column: u16, row: u16) -> Option<ButtonAction> {
+        self.buttons.iter().find_map(|button| {
+            let area = button.area;
+            let within_x = column >= area.x && column < area.x.saturating_add(area.width);
+            let within_y = row >= area.y && row < area.y.saturating_add(area.height);
+            if within_x && within_y {
+                Some(button.action)
+            } else {
+                None
+            }
+        })
     }
 
     fn all_clear(&mut self) {
@@ -319,7 +383,7 @@ impl App {
 
     fn expression_line(&self) -> String {
         if let Some(err) = &self.error_message {
-            return format!("{err} (press A to clear)");
+            return format!("{err} (press A or click AC to clear)");
         }
 
         let mut parts: Vec<String> = self
@@ -335,45 +399,120 @@ impl App {
         }
 
         if parts.is_empty() {
-            "Enter digits and choose an operator".into()
+            "Click buttons or use the keyboard".into()
         } else {
             parts.join(" ")
         }
     }
 }
 
-impl Widget for &App {
-    fn render(self, area: ratatui::prelude::Rect, buf: &mut Buffer) {
+impl Widget for &mut App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         let layout = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+        let expression = Paragraph::new(self.expression_line())
+            .block(Block::bordered().title("Expression"))
+            .alignment(Alignment::Right);
+
+        let value = Paragraph::new(Span::styled(
+            self.display_value(),
+            Style::default().add_modifier(Modifier::BOLD),
+        ))
+        .alignment(Alignment::Right)
+        .block(Block::bordered().title("Result"));
+
+        expression.render(layout[0], buf);
+        value.render(layout[1], buf);
+        self.render_buttons(layout[2], buf);
+    }
+}
+
+impl App {
+    fn render_buttons(&mut self, area: Rect, buf: &mut Buffer) {
+        self.buttons.clear();
+
+        let rows = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
         ])
         .split(area);
 
-        let expression = Paragraph::new(self.expression_line())
-            .block(Block::bordered().title("Expression"))
-            .alignment(ratatui::layout::Alignment::Right);
+        let grid: [[(&'static str, ButtonAction); 4]; 5] = [
+            [
+                ("AC", ButtonAction::AllClear),
+                ("DEL", ButtonAction::Backspace),
+                ("", ButtonAction::NoOp),
+                ("", ButtonAction::NoOp),
+            ],
+            [
+                ("7", ButtonAction::Digit('7')),
+                ("8", ButtonAction::Digit('8')),
+                ("9", ButtonAction::Digit('9')),
+                ("÷", ButtonAction::Operator(Operator::Divide)),
+            ],
+            [
+                ("4", ButtonAction::Digit('4')),
+                ("5", ButtonAction::Digit('5')),
+                ("6", ButtonAction::Digit('6')),
+                ("×", ButtonAction::Operator(Operator::Multiply)),
+            ],
+            [
+                ("1", ButtonAction::Digit('1')),
+                ("2", ButtonAction::Digit('2')),
+                ("3", ButtonAction::Digit('3')),
+                ("-", ButtonAction::Operator(Operator::Subtract)),
+            ],
+            [
+                ("0", ButtonAction::Digit('0')),
+                (".", ButtonAction::Decimal),
+                ("=", ButtonAction::Evaluate),
+                ("+", ButtonAction::Operator(Operator::Add)),
+            ],
+        ];
 
-        let value = Paragraph::new(Span::styled(
-            self.display_value(),
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-        .alignment(ratatui::layout::Alignment::Right)
-        .block(Block::bordered().title("Result"));
+        for (row_area, row) in rows.iter().zip(grid) {
+            let cols = Layout::horizontal([
+                Constraint::Ratio(1, 4),
+                Constraint::Ratio(1, 4),
+                Constraint::Ratio(1, 4),
+                Constraint::Ratio(1, 4),
+            ])
+            .split(*row_area);
 
-        let instruction = Paragraph::new(Line::from(vec![
-            Span::styled("Digits 0-9", Style::default().add_modifier(Modifier::BOLD)),
-            "· + - * : ".into(),
-            "· Enter/=: evaluate ".into(),
-            "· A: AC ".into(),
-            "· Q: Quit".into(),
-        ]))
-        .block(Block::bordered());
-
-        expression.render(layout[0], buf);
-        value.render(layout[1], buf);
-        instruction.render(layout[2], buf);
+            for (area, (label, action)) in cols.iter().zip(row) {
+                if label.is_empty() {
+                    continue;
+                }
+                let area = *area;
+                self.buttons.push(Button { action, area });
+                let label_style = match action {
+                    ButtonAction::Operator(_) | ButtonAction::Evaluate => {
+                        Style::default().add_modifier(Modifier::BOLD)
+                    }
+                    ButtonAction::AllClear | ButtonAction::Backspace | ButtonAction::Quit => {
+                        Style::default().add_modifier(Modifier::DIM)
+                    }
+                    ButtonAction::NoOp => Style::default().add_modifier(Modifier::DIM),
+                    _ => Style::default(),
+                };
+                let block_style = match action {
+                    ButtonAction::Operator(_) => Style::default().fg(Color::Blue),
+                    _ => Style::default(),
+                };
+                Paragraph::new(Line::from(vec![Span::styled(label, label_style)]))
+                    .alignment(Alignment::Center)
+                    .block(Block::bordered().style(block_style))
+                    .render(area, buf);
+            }
+        }
     }
 }
 
@@ -480,16 +619,18 @@ mod tests {
     }
 
     #[test]
-    fn render_shows_expression_result_and_instructions() {
-        let app = App::default();
-        let area = Rect::new(0, 0, 60, 9);
+    fn render_shows_expression_result_and_buttons() {
+        let mut app = App::default();
+        let area = Rect::new(0, 0, 60, 21);
         let mut buf = Buffer::empty(area);
 
-        (&app).render(area, &mut buf);
+        (&mut app).render(area, &mut buf);
 
-        assert!(row_string(&buf, 1, area.width).contains("Enter digits"));
-        assert!(row_string(&buf, 4, area.width).contains("0"));
-        assert!(row_string(&buf, 7, area.width).contains("Digits 0-9"));
+        let all = buffer_string(&buf, area);
+        assert!(all.contains("Expression"));
+        assert!(all.contains("Result"));
+        assert!(all.contains("AC"));
+        assert!(all.contains("7"));
     }
 
     fn row_string(buf: &Buffer, row: u16, width: u16) -> String {
@@ -498,5 +639,13 @@ mod tests {
             line.push_str(buf[(x, row)].symbol());
         }
         line
+    }
+
+    fn buffer_string(buf: &Buffer, area: Rect) -> String {
+        let mut content = String::new();
+        for row in 0..area.height {
+            content.push_str(&row_string(buf, row, area.width));
+        }
+        content
     }
 }
